@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="2" skipped="1" tests="7" time="0.019" timestamp="2026-09-03T19:37:27.996677+05:30" hostname="HW4733"><testcase classname="tests.test_sample" name="test_passes" time="0.000" /><testcase classname="tests.test_sample" name="test_fails" time="0.000"><failure message="AssertionError: values differ&#10;assert 'expected' == 'actual'&#10;  &#10;  - actual&#10;  + expected">def test_fails():
+&gt;       assert "expected" == "actual", "values differ"
+E       AssertionError: values differ
+E       assert 'expected' == 'actual'
+E         
+E         - actual
+E         + expected
+
+tests/test_sample.py:7: AssertionError</failure></testcase><testcase classname="tests.test_sample" name="test_skipped" time="0.000"><skipped type="pytest.skip" message="not ready">/tmp/claude-1000/-home-he4539-git-exasol-tcms/0deb8219-6afb-4f37-9f70-269e052745cc/scratchpad/junitgen/tests/test_sample.py:9: not ready</skipped></testcase><testcase classname="tests.test_sample.TestGroup" name="test_in_class" time="0.000" /><testcase classname="tests.test_sample.TestGroup" name="test_errors" time="0.000"><failure message="RuntimeError: boom">self = &lt;test_sample.TestGroup object at 0x70d9db3a82d0&gt;
+
+    def test_errors(self):
+&gt;       raise RuntimeError("boom")
+E       RuntimeError: boom
+
+tests/test_sample.py:18: RuntimeError</failure></testcase><testcase classname="tests.test_sample" name="test_parametrized[1]" time="0.000" /><testcase classname="tests.test_sample" name="test_parametrized[2]" time="0.000" /></testsuite></testsuites>

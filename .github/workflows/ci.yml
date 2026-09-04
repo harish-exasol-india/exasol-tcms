@@ -1,0 +1,53 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: Install
+        run: npm ci
+
+      # @tcms/shared must be built first: backend and frontend consume its
+      # emitted declarations, not its source.
+      - name: Build shared contracts
+        run: npm run build --workspace @tcms/shared
+
+      - name: Lint and format
+        run: npx biome ci .
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Test
+        run: npm test
+
+      - name: Build
+        run: npm run build
+
+      # Documentation is generated from the route table; this fails if it has drifted.
+      - name: API docs are current
+        run: npm run docs:check
+
+      # The rollback plan depends on every migration having a paired down script.
+      - name: Migrations are reversible
+        run: npm run migrations:check
+
+      # Configuration must come only from the environment (design Decision 22).
+      - name: Twelve-factor audit
+        run: node scripts/check-twelve-factor.mjs

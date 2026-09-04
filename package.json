@@ -1,0 +1,32 @@
+{
+  "name": "exasol-tcms",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "workspaces": [
+    "packages/*"
+  ],
+  "scripts": {
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "build": "npm run build --workspaces --if-present",
+    "test": "vitest run",
+    "lint": "biome lint .",
+    "format": "biome format --write .",
+    "format:check": "biome format .",
+    "test:watch": "vitest",
+    "check": "biome check .",
+    "docs:api": "npm run build --workspace @tcms/backend && node packages/backend/dist/docs/generate.js",
+    "docs:check": "node scripts/check-api-docs.mjs",
+    "migrations:check": "node scripts/check-migrations.mjs"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "^2.3.14",
+    "@types/node": "^22.10.5",
+    "playwright": "^1.62.1",
+    "typescript": "^7.0.2",
+    "vitest": "^3.0.2"
+  }
+}

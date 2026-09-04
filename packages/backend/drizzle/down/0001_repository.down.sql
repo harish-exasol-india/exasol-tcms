@@ -1,0 +1,9 @@
+DROP TABLE IF EXISTS "case_history";
+DROP TABLE IF EXISTS "custom_field_definition";
+DROP TABLE IF EXISTS "shared_step_item";
+DROP TABLE IF EXISTS "shared_step";
+DROP TABLE IF EXISTS "case_tag";
+DROP TABLE IF EXISTS "tag";
+DROP TABLE IF EXISTS "case_step";
+DROP TABLE IF EXISTS "test_case";
+DROP TABLE IF EXISTS "suite";

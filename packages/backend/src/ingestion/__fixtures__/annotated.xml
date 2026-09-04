@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<testsuites name="pytest tests">
+  <testsuite name="pytest" tests="3" failures="1">
+    <testcase classname="tests.test_auth" name="test_admin_sso" time="1.250">
+      <properties><property name="tcms.id" value="EXA-1000"/></properties>
+    </testcase>
+    <testcase classname="tests.test_auth" name="test_user_login [EXA-1001]" time="0.500"/>
+    <testcase classname="tests.test_auth" name="test_broken" time="0.100">
+      <properties><property name="tcms.id" value="EXA-1002"/></properties>
+      <failure message="AssertionError: nope">stack trace here</failure>
+    </testcase>
+  </testsuite>
+</testsuites>

@@ -1,0 +1,14 @@
+DROP TABLE IF EXISTS "unbound_result";
+DROP TABLE IF EXISTS "automation_binding";
+DROP TABLE IF EXISTS "failure_triage";
+DROP TABLE IF EXISTS "defect_link";
+DROP TABLE IF EXISTS "attachment";
+DROP TABLE IF EXISTS "step_result";
+DROP TABLE IF EXISTS "case_result";
+DROP TABLE IF EXISTS "run_case";
+DROP TABLE IF EXISTS "run";
+DROP TABLE IF EXISTS "release_sign_off";
+DROP TABLE IF EXISTS "release";
+DROP TABLE IF EXISTS "environment";
+DROP TABLE IF EXISTS "test_plan_case";
+DROP TABLE IF EXISTS "test_plan";

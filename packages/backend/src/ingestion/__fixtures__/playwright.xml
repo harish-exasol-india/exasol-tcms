@@ -1,0 +1,63 @@
+<testsuites id="" name="" tests="4" failures="1" skipped="1" errors="0" time="1.4901040000000003">
+<testsuite name="sample.spec.ts" timestamp="2026-09-03T14:07:39.452Z" hostname="" tests="4" failures="1" skipped="1" time="0.03" errors="0">
+<testcase name="passes" classname="sample.spec.ts" time="0.008">
+</testcase>
+<testcase name="fails" classname="sample.spec.ts" time="0.015">
+<system-out>
+<![CDATA[
+[[ATTACHMENT|test-results/sample-fails/error-context.md]]
+
+[[ATTACHMENT|test-results/sample-fails-retry1/error-context.md]]
+]]>
+</system-out>
+<failure message="expect(received).toBe(expected) // Object.is equality" type="expect.toBe">
+<![CDATA[  sample.spec.ts:4:5 › fails ───────────────────────────────────────────────────────────────────────
+
+    Error: expect(received).toBe(expected) // Object.is equality
+
+    Expected: "actual"
+    Received: "expected"
+
+      2 |
+      3 | test('passes', async () => { expect(1 + 1).toBe(2); });
+    > 4 | test('fails', async () => { expect('expected').toBe('actual'); });
+        |                                                ^
+      5 | test.skip('skipped', async () => {});
+      6 | test.describe('group', () => {
+      7 |   test('nested passes', async () => { expect(true).toBe(true); });
+        at /tmp/claude-1000/-home-he4539-git-exasol-tcms/0deb8219-6afb-4f37-9f70-269e052745cc/scratchpad/pwgen/tests/sample.spec.ts:4:48
+
+    Error Context: ../test-results/sample-fails/error-context.md
+
+    Retry #1 ───────────────────────────────────────────────────────────────────────────────────────
+
+    Error: expect(received).toBe(expected) // Object.is equality
+
+    Expected: "actual"
+    Received: "expected"
+
+      2 |
+      3 | test('passes', async () => { expect(1 + 1).toBe(2); });
+    > 4 | test('fails', async () => { expect('expected').toBe('actual'); });
+        |                                                ^
+      5 | test.skip('skipped', async () => {});
+      6 | test.describe('group', () => {
+      7 |   test('nested passes', async () => { expect(true).toBe(true); });
+        at /tmp/claude-1000/-home-he4539-git-exasol-tcms/0deb8219-6afb-4f37-9f70-269e052745cc/scratchpad/pwgen/tests/sample.spec.ts:4:48
+
+    Error Context: ../test-results/sample-fails-retry1/error-context.md
+]]>
+</failure>
+</testcase>
+<testcase name="skipped" classname="sample.spec.ts">
+<properties>
+<property name="skip" value="">
+</property>
+</properties>
+<skipped>
+</skipped>
+</testcase>
+<testcase name="group › nested passes" classname="sample.spec.ts" time="0.007">
+</testcase>
+</testsuite>
+</testsuites>

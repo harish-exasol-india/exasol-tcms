@@ -1,0 +1,1 @@
+CREATE INDEX "run_case_case_ix" ON "run_case" USING btree ("case_id");
