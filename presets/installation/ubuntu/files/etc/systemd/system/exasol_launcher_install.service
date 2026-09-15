@@ -1,0 +1,16 @@
+# Cluster install phase (access node only).
+# Idempotent via install.complete marker.
+
+[Unit]
+Description=Exasol Launcher Installation
+ConditionPathExists=!/var/lib/exasol_launcher/state/install.complete
+Requires=exasol_launcher_prepare.service exasol_launcher_prepare_user.service exasol_launcher_node_barrier_client.service exasol_launcher_node_barrier_server.service
+After=exasol_launcher_prepare.service exasol_launcher_prepare_user.service exasol_launcher_node_barrier_client.service exasol_launcher_node_barrier_server.service
+
+[Service]
+Type=oneshot
+ExecCondition=/opt/exasol_launcher/scripts/isAccessNode.sh
+ExecStart=/opt/exasol_launcher/scripts/installExasol.sh
+ExecStartPost=/usr/bin/touch /var/lib/exasol_launcher/state/install.complete
+User=ubuntu
+WorkingDirectory=~

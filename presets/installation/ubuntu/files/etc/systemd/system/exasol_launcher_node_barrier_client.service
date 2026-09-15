@@ -1,0 +1,15 @@
+# Node barrier client: each node registers readiness with n11.
+# Runs as ubuntu to use SSH.
+
+[Unit]
+Description=Exasol Launcher Installation Node Barrier Client
+ConditionPathExists=!/var/lib/exasol_launcher/state/node_barrier_client.complete
+Requires=exasol_launcher_prepare.service exasol_launcher_prepare_user.service
+After=exasol_launcher_prepare.service exasol_launcher_prepare_user.service
+
+[Service]
+Type=oneshot
+ExecStart=/opt/exasol_launcher/scripts/waitNodesReady.sh client
+ExecStartPost=/usr/bin/touch /var/lib/exasol_launcher/state/node_barrier_client.complete
+User=ubuntu
+WorkingDirectory=~

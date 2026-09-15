@@ -1,0 +1,16 @@
+# User preparation phase for inter-node SSH.
+# Idempotent via prepare_user.complete marker.
+
+[Unit]
+Description=Exasol Launcher User Preparation
+ConditionPathExists=!/var/lib/exasol_launcher/state/prepare_user.complete
+Requires=exasol_launcher_prepare.service
+After=exasol_launcher_prepare.service
+
+[Service]
+Type=oneshot
+ExecStart=/opt/exasol_launcher/scripts/uploadAdminKey.sh
+ExecStart=/opt/exasol_launcher/scripts/runInfraHookScripts.sh pre-install-user
+ExecStartPost=/usr/bin/touch /var/lib/exasol_launcher/state/prepare_user.complete
+User=ubuntu
+WorkingDirectory=~

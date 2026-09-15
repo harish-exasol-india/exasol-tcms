@@ -1,0 +1,124 @@
+# Azure Infrastructure as Code Architecture
+
+## Overview
+This document describes the Infrastructure as Code (IaC) implementation for Exasol Personal on Azure. It supports single-node and multi-node deployments with a simple setup for networking, storage, and unattended installation on Ubuntu virtual machines.
+
+## Prerequisites and Azure Provider
+- Authentication is handled by the `azurerm` provider's normal credential chain, such as Azure CLI login or service principal environment variables.
+- The provider configuration intentionally stays minimal and relies on the environment for subscription and authentication context.
+
+## Infrastructure Components
+
+### Compute
+- One Azure Linux virtual machine is created per node (`n11`, `n12`, ...).
+- The default VM size is `Standard_E4s_v3`.
+- The default image is Canonical Ubuntu 24.04 LTS Gen2 (`latest`).
+- SSH access is configured with a generated RSA key pair and password authentication is disabled.
+
+### Storage
+- Each node gets a separate OS disk and a separate managed data disk.
+- Both disks use the Azure managed disk SKU configured by `disk_sku` (default: `Premium_LRS`).
+- The data disk is attached at LUN `0`.
+- The node metadata exposes a provider-neutral final disk alias `/dev/exasol_data_01`.
+- The udev match clause for the data disk is fully resolved at Terraform plan time using the deterministic LUN-based symlink path (`/dev/disk/azure/data/by-lun/<lun>`). During node preparation, a udev rule is written from this pre-built clause and udev creates the `/dev/exasol_data_01` alias automatically when the disk appears — no runtime discovery or polling is needed.
+- A remote archive volume on Azure Blob Storage is created and registered automatically when `blob_archive_enabled` is true (default).
+- The preset creates a per-deployment Storage Account and a private Blob container named `archive`.
+- The Storage Account keeps the standard blob endpoint enabled, but access is restricted with storage firewall rules to the deployment subnet.
+- Exasol currently uses the storage account name and an access key to authenticate the Azure remote archive volume.
+
+### Networking
+- A single resource group contains the deployment resources.
+- A single virtual network and subnet are created for the cluster.
+- Each node gets:
+  - one NIC
+  - one static private IP
+  - one static Standard public IP
+- A network security group is attached to each NIC.
+
+## Access and Security
+The following inbound ports are opened from `var.allowed_cidr`:
+
+1. 22 - SSH
+2. 2581 - BucketFS
+3. 8443 - Admin UI
+4. 8563 - Database
+5. 20002 - Exasol container SSH
+6. 20003 - Exasol confd API
+
+## Resource Organization
+- A unique deployment ID is generated for each deployment, for example `exasol-1a2b3c4d`.
+- Resource names are derived from the deployment ID to keep deployments isolated.
+- Common tags include:
+  - `ManagedBy = opentofu`
+  - `Project = exasol-personal`
+  - `Deployment = <deployment_id>`
+  - `CreatedAt = <timestamp>`
+  - `Owner = <Azure AD identity name>` (user principal name for users, display name for service principals)
+
+## Node Addressing Scheme
+- Nodes are named `n<NN>` starting at `n11`.
+- Private IPs are assigned deterministically from the subnet:
+  - `n11` -> `172.30.1.11`
+  - `n12` -> `172.30.1.12`
+  - `n13` -> `172.30.1.13`
+
+## Deployment Lifecycle
+1. OpenTofu plan/apply:
+   - generates a deployment ID
+   - creates the resource group, network, NSG, public IPs, NICs, VMs, and managed data disks
+   - creates an Azure Key Vault with an access policy and stores the SSH private key as a secret
+   - creates Azure Blob Storage resources for the remote archive volume when `blob_archive_enabled` is true
+   - creates a separate bootstrap storage account and a private blob container named `boostrap` for cloud-init file overlays
+   - renders cloud-init for each node
+2. Cloud-init on each node:
+   - writes deployment metadata and node metadata under `/etc/exasol_launcher/`
+   - fetches the launcher scripts and systemd units from the bootstrap blob container through signed HTTPS blob URLs
+   - prepares the Azure data disk and exposes it as `/dev/exasol_data_01`
+3. Node initialization:
+   - systemd runs the shared preparation and installation workflow
+   - Exasol is installed using the common disk alias `/dev/exasol_data_01`
+   - the access node registers the Azure Blob container as the remote archive volume `default_archive`
+4. Local artifacts:
+   - `deployment.json` - deployment summary
+   - `secrets.json` - generated credentials
+   - `node_access.pem` - SSH private key
+
+## Outputs
+- The preset exports deployment metadata and deployment secrets as Terraform outputs.
+- It also writes `deployment.json` and `secrets.json` into the deployment directory for launcher consumption.
+- SSH connection details and database access URLs are included in `deployment.json`.
+
+## Credentials
+- Database and Admin UI passwords are generated unless explicitly provided.
+- The generated SSH private key is written locally with mode `0600` and stored in Azure Key Vault at `ssh-private-key`.
+- Remote archive registration uses the Azure Storage Account name and access key generated for the deployment.
+
+## Permissions
+- The operator identity running OpenTofu needs Azure permissions to manage:
+  - resource groups
+  - virtual networks and subnets
+  - public IPs
+  - NICs and NSGs
+  - virtual machines
+  - managed disks
+  - Key Vaults (with access policies)
+- Storage Accounts and Blob containers
+- Bootstrap asset delivery uses a dedicated private blob container that is separate from the archive container and restricted to the deployment subnet.
+- The deployment identity must also be able to read storage account keys because Exasol's Azure remote archive integration uses shared-key authentication.
+- For broad access, Azure built-in `Contributor` scoped to the target resource group is usually sufficient.
+- For least privilege, use a custom Azure RBAC role that covers the resource types above.
+- The checked-in RBAC role examples in this directory can be used as custom Azure role definitions for this preset.
+- Recommended usage:
+  - `assets/infrastructure/azure/rbac-role.broad.json` for a broad custom role, or Azure built-in `Contributor`
+  - `assets/infrastructure/azure/rbac-role.minimal.json` for a least-privilege custom role scoped to the target resource group or subscription segment
+- Assign these permissions at the smallest practical scope, preferably the resource group created for the deployment.
+
+## Configuration Notes
+- `power_state` controls the VM lifecycle: `running` starts VMs, `stopped` deallocates them (releases compute but preserves disks).
+- `blob_archive_enabled` controls whether Azure Blob Storage resources are created and the remote archive volume is registered.
+- `availabilityZone` is currently empty in the generated deployment metadata.
+- `disk_sku` controls the Azure managed disk SKU used for both OS and data disks.
+
+## Notes and Limitations
+- The preset currently relies on public IP connectivity for node access.
+- The SSH private key is written as `node_access.pem`.

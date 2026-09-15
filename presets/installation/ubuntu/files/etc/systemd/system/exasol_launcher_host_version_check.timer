@@ -1,0 +1,17 @@
+# Scheduler for host-side fallback version checks.
+# Daily cadence with jitter and persistent catch-up.
+
+[Unit]
+Description=Schedule Exasol Launcher Host Version Check
+Requires=exasol_launcher_ready.service
+After=exasol_launcher_ready.service
+
+[Timer]
+Unit=exasol_launcher_host_version_check.service
+OnActiveSec=15min
+OnUnitActiveSec=24h
+RandomizedDelaySec=30min
+Persistent=true
+
+[Install]
+WantedBy=timers.target

@@ -1,0 +1,11 @@
+name: Exasol Local
+description: Exasol Local deployment using a macOS VM or Linux Podman.
+backend: local
+
+local:
+  cpuCount: 2
+  dataSizeGB: 100
+
+compatibility:
+  provides:
+    - local-exasol

@@ -1,0 +1,19 @@
+# DB readiness phase after install.
+# Idempotent via ready.complete marker.
+
+[Unit]
+Description=Exasol Launcher Ready
+ConditionPathExists=!/var/lib/exasol_launcher/state/ready.complete
+Requires=exasol_launcher_install.service
+After=exasol_launcher_install.service
+
+[Service]
+Type=oneshot
+ExecStartPre=/usr/bin/echo "EXASOL-INSTALL-STEP: Waiting for Exasol to become ready"
+ExecStart=/opt/exasol_launcher/scripts/waitC4Present.sh
+ExecStart=/opt/exasol_launcher/scripts/waitDatabaseBootup.sh
+ExecStart=/opt/exasol_launcher/scripts/waitConfdStartup.sh
+ExecStartPost=/usr/bin/echo "EXASOL-INSTALL-STEP: Exasol is ready"
+ExecStartPost=/usr/bin/touch /var/lib/exasol_launcher/state/ready.complete
+User=ubuntu
+WorkingDirectory=~

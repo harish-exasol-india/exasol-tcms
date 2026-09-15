@@ -1,0 +1,14 @@
+{
+  "default-service-strategy": "deny",
+  "services": {
+    "compute": {
+      "type": "allow"
+    },
+    "sos": {
+      "type": "allow"
+    },
+    "iam": {
+      "type": "allow"
+    }
+  }
+}

@@ -1,0 +1,13 @@
+# Root preparation phase (first in workflow).
+# Idempotent via exasol_launcher_prepare.complete marker.
+
+[Unit]
+Description=Exasol Launcher System Preparation
+ConditionPathExists=!/var/lib/exasol_launcher/state/exasol_launcher_prepare.complete
+
+[Service]
+Type=oneshot
+ExecStart=/opt/exasol_launcher/scripts/prepareExasol.sh
+ExecStart=/opt/exasol_launcher/scripts/runInfraHookScripts.sh pre-install-root
+ExecStartPost=/usr/bin/touch /var/lib/exasol_launcher/state/exasol_launcher_prepare.complete
+WorkingDirectory=/root

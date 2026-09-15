@@ -1,0 +1,412 @@
+locals {
+  common_tags = {
+    ManagedBy  = "opentofu"
+    Project    = "exasol-personal"
+    Deployment = local.deployment_id
+    CreatedAt  = var.deployment_created_at
+    Owner      = coalesce(try(data.azuread_user.current[0].user_principal_name, null), try(data.azuread_service_principal.current[0].display_name, null), data.azurerm_client_config.current.object_id)
+  }
+
+  deployment_id = "exasol-${var.deployment_id}"
+  rg_name       = var.resource_group_name != "" ? var.resource_group_name : "${local.deployment_id}-rg"
+  data_disk_lun = 0
+
+  # Node configuration
+  node_start_num = 11
+  nodes = [
+    for i in range(var.cluster_size) : {
+      name = "n${local.node_start_num + i}"
+      ip   = "172.30.1.${local.node_start_num + i}"
+    }
+  ]
+
+  # Final passwords: prefer user-provided over generated
+  db_password_final      = var.db_password != "" ? var.db_password : random_password.db.result
+  adminui_password_final = var.adminui_password != "" ? var.adminui_password : random_password.adminui.result
+}
+
+resource "random_string" "archive_storage_suffix" {
+  count   = var.blob_archive_enabled ? 1 : 0
+  length  = 6
+  upper   = false
+  lower   = true
+  numeric = true
+  special = false
+}
+
+resource "random_string" "bootstrap_storage_suffix" {
+  length  = 6
+  upper   = false
+  lower   = true
+  numeric = true
+  special = false
+}
+
+# Fetch specs of specified VM size from Azure
+data "azapi_resource_list" "vm_sizes" {
+  type                   = "Microsoft.Compute/locations/vmSizes@2024-11-01"
+  parent_id              = "/subscriptions/${data.azurerm_subscription.current.subscription_id}/providers/Microsoft.Compute/locations/${var.location}"
+  response_export_values = ["value"]
+}
+
+data "azurerm_subscription" "current" {}
+
+data "azuread_directory_object" "current" {
+  object_id = data.azurerm_client_config.current.object_id
+}
+
+data "azuread_user" "current" {
+  count     = data.azuread_directory_object.current.type == "User" ? 1 : 0
+  object_id = data.azurerm_client_config.current.object_id
+}
+
+data "azuread_service_principal" "current" {
+  count     = data.azuread_directory_object.current.type == "ServicePrincipal" ? 1 : 0
+  object_id = data.azurerm_client_config.current.object_id
+}
+
+locals {
+  vm_sizes        = data.azapi_resource_list.vm_sizes.output.value
+  selected_vm     = one([for s in local.vm_sizes : s if s.name == var.instance_type])
+  instance_vcpus  = local.selected_vm != null ? local.selected_vm.numberOfCores : 0
+  instance_ram_gb = local.selected_vm != null ? local.selected_vm.memoryInMB / 1024 : 0
+
+  archive_storage_account_name   = var.blob_archive_enabled ? "exa${var.deployment_id}${random_string.archive_storage_suffix[0].result}" : ""
+  archive_container_name         = "archive"
+  archive_container_url          = var.blob_archive_enabled ? "https://${local.archive_storage_account_name}.blob.core.windows.net/${local.archive_container_name}" : ""
+  archive_volume_name            = "default_archive"
+  bootstrap_storage_account_name = "exb${var.deployment_id}${random_string.bootstrap_storage_suffix.result}"
+  bootstrap_container_name       = "boostrap"
+}
+
+resource "azurerm_resource_group" "rg" {
+  name     = local.rg_name
+  location = var.location
+  tags     = local.common_tags
+
+  lifecycle {
+    precondition {
+      condition     = var.location != ""
+      error_message = "Azure region is required. Set it via --location (e.g., --location westeurope)."
+    }
+  }
+}
+
+resource "azurerm_virtual_network" "vnet" {
+  name                = "${local.deployment_id}-vnet"
+  location            = azurerm_resource_group.rg.location
+  resource_group_name = azurerm_resource_group.rg.name
+  address_space       = [var.vnet_cidr]
+  tags                = local.common_tags
+}
+
+resource "azurerm_subnet" "subnet" {
+  name                 = "${local.deployment_id}-subnet"
+  resource_group_name  = azurerm_resource_group.rg.name
+  virtual_network_name = azurerm_virtual_network.vnet.name
+  address_prefixes     = [var.subnet_cidr]
+  service_endpoints    = ["Microsoft.Storage"]
+}
+
+resource "azurerm_storage_account" "remote_archive" {
+  count                    = var.blob_archive_enabled ? 1 : 0
+  name                     = local.archive_storage_account_name
+  resource_group_name      = azurerm_resource_group.rg.name
+  location                 = azurerm_resource_group.rg.location
+  account_tier             = "Standard"
+  account_replication_type = "LRS"
+  account_kind             = "StorageV2"
+
+  https_traffic_only_enabled = true
+
+  # Enforce a modern transport baseline for archive access.
+  min_tls_version = "TLS1_2"
+
+  # Prevent anonymous public access to blobs in this storage account.
+  allow_nested_items_to_be_public = false
+
+  # Exasol currently authenticates Azure remote archive volumes with the
+  # storage account name and an access key, so shared key auth must stay enabled.
+  shared_access_key_enabled = true
+
+  # Keep the standard blob endpoint reachable and rely on network_rules below
+  # to restrict access to the deployment subnet. This account holds backup data
+  # and receives no client-side uploads, so (unlike bootstrap_assets) the strict
+  # subnet firewall is kept.
+  public_network_access_enabled = true
+
+  network_rules {
+    default_action             = "Deny"
+    bypass                     = ["AzureServices"]
+    virtual_network_subnet_ids = [azurerm_subnet.subnet.id]
+  }
+
+  identity {
+    type = "SystemAssigned"
+  }
+
+  tags = local.common_tags
+}
+
+resource "azurerm_storage_container" "remote_archive" {
+  count                 = var.blob_archive_enabled ? 1 : 0
+  name                  = local.archive_container_name
+  storage_account_id    = azurerm_storage_account.remote_archive[0].id
+  container_access_type = "private"
+}
+
+resource "azurerm_storage_account" "bootstrap_assets" {
+  name                     = local.bootstrap_storage_account_name
+  resource_group_name      = azurerm_resource_group.rg.name
+  location                 = azurerm_resource_group.rg.location
+  account_tier             = "Standard"
+  account_replication_type = "LRS"
+  account_kind             = "StorageV2"
+
+  https_traffic_only_enabled = true
+  min_tls_version            = "TLS1_2"
+
+  allow_nested_items_to_be_public = false
+  public_network_access_enabled   = true
+  shared_access_key_enabled       = true
+
+  # NOTE: no `network_rules`/`default_action` firewall here — intentionally, and
+  # unlike the `remote_archive` account above.
+  #
+  # The bootstrap blobs below are uploaded by the deploying client (the launcher
+  # running `tofu apply`), which runs OUTSIDE the deployment VNet — a CI runner or
+  # an end user's machine. A subnet-scoped `default_action = "Deny"` firewall
+  # blocks that data-plane upload with HTTP 403 and breaks `deploy` entirely
+  # (SPOT-31457). Terraform cannot know the deploying client's public IP to allow
+  # it without an external IP-lookup service or a launcher change, both of which
+  # we deliberately avoid.
+  #
+  # Confidentiality does not depend on this firewall: the container is private,
+  # `allow_nested_items_to_be_public = false` forbids anonymous access, transport
+  # is HTTPS/TLS1.2, and the VMs read blobs with a read-only, object-scoped SAS
+  # (see `azurerm_storage_account_sas.bootstrap_assets`). The blobs themselves are
+  # non-secret bootstrap scripts. The sensitive `remote_archive` account keeps its
+  # strict `network_rules` because nothing uploads to it from outside the VNet.
+
+  identity {
+    type = "SystemAssigned"
+  }
+
+  tags = local.common_tags
+}
+
+resource "azurerm_storage_container" "bootstrap_assets" {
+  name                  = local.bootstrap_container_name
+  storage_account_id    = azurerm_storage_account.bootstrap_assets.id
+  container_access_type = "private"
+}
+
+resource "azurerm_storage_blob" "bootstrap_assets" {
+  for_each = local.bootstrap_node_files_by_key
+
+  name                   = each.key
+  storage_account_name   = azurerm_storage_account.bootstrap_assets.name
+  storage_container_name = azurerm_storage_container.bootstrap_assets.name
+  type                   = "Block"
+  source                 = each.value.src_path
+  content_md5            = filemd5(each.value.src_path)
+  content_type           = "text/plain"
+}
+
+data "azurerm_storage_account_sas" "bootstrap_assets" {
+  connection_string = azurerm_storage_account.bootstrap_assets.primary_connection_string
+  https_only        = true
+  signed_version    = "2022-11-02"
+  start             = var.deployment_created_at
+  expiry            = timeadd(var.deployment_created_at, "87600h")
+
+  resource_types {
+    service   = false
+    container = false
+    object    = true
+  }
+
+  services {
+    blob  = true
+    queue = false
+    table = false
+    file  = false
+  }
+
+  permissions {
+    read    = true
+    write   = false
+    delete  = false
+    list    = false
+    add     = false
+    create  = false
+    update  = false
+    process = false
+    tag     = false
+    filter  = false
+  }
+}
+
+resource "azurerm_public_ip" "nodes" {
+  for_each = { for node in local.nodes : node.name => node }
+
+  name                = "${local.deployment_id}-${each.key}-pip"
+  location            = azurerm_resource_group.rg.location
+  resource_group_name = azurerm_resource_group.rg.name
+  allocation_method   = "Static"
+  sku                 = "Standard"
+  domain_name_label   = "${local.deployment_id}-${each.key}"
+  tags                = local.common_tags
+}
+
+resource "azurerm_network_interface" "nodes" {
+  for_each = { for node in local.nodes : node.name => node }
+
+  name                = "${local.deployment_id}-${each.key}-nic"
+  location            = azurerm_resource_group.rg.location
+  resource_group_name = azurerm_resource_group.rg.name
+  tags                = local.common_tags
+
+  ip_configuration {
+    name                          = "primary"
+    subnet_id                     = azurerm_subnet.subnet.id
+    private_ip_address_allocation = "Static"
+    private_ip_address            = each.value.ip
+    public_ip_address_id          = azurerm_public_ip.nodes[each.key].id
+  }
+}
+
+resource "azurerm_network_interface_security_group_association" "nodes" {
+  for_each = azurerm_network_interface.nodes
+
+  network_interface_id      = each.value.id
+  network_security_group_id = azurerm_network_security_group.exasol_instance.id
+}
+
+resource "azurerm_linux_virtual_machine" "nodes" {
+  for_each = { for node in local.nodes : node.name => node }
+
+  lifecycle {
+    precondition {
+      condition     = local.selected_vm != null
+      error_message = "Instance type ${var.instance_type} is not available in region ${var.location}. Please choose a different instance type or region."
+    }
+    precondition {
+      condition     = local.instance_vcpus >= var.min_vcpus && local.instance_ram_gb >= var.min_ram_gb
+      error_message = <<-EOT
+        Resource Spec Validation Failed:
+        Instance Type: ${var.instance_type}
+        vCPUs: ${local.instance_vcpus} (min required: ${var.min_vcpus})
+        RAM: ${local.instance_ram_gb}GB (min required: ${var.min_ram_gb}GB)
+
+        ${var.instance_type} has only ${local.instance_vcpus} vCPUs / ${local.instance_ram_gb}GB RAM. Use instance types which have at least ${var.min_vcpus} vCPUs / ${var.min_ram_gb}GB RAM or larger.
+      EOT
+    }
+  }
+
+  name                = "${local.deployment_id}-${each.key}"
+  computer_name       = "ip-${replace(each.value.ip, ".", "-")}"
+  location            = azurerm_resource_group.rg.location
+  resource_group_name = azurerm_resource_group.rg.name
+  size                = var.instance_type
+  admin_username      = "ubuntu"
+  network_interface_ids = [
+    azurerm_network_interface.nodes[each.key].id
+  ]
+  disable_password_authentication = true
+
+  tags = local.common_tags
+
+  admin_ssh_key {
+    username   = "ubuntu"
+    public_key = tls_private_key.ssh_key.public_key_openssh
+  }
+
+  identity {
+    type = "SystemAssigned"
+  }
+
+  os_disk {
+    name                 = "${local.deployment_id}-${each.key}-os"
+    caching              = "ReadWrite"
+    storage_account_type = var.disk_sku
+    disk_size_gb         = var.os_volume_size
+  }
+
+  source_image_reference {
+    publisher = var.image_publisher
+    offer     = var.image_offer
+    sku       = var.image_sku
+    version   = var.image_version
+  }
+
+  custom_data = data.cloudinit_config.cloud_config[each.key].rendered
+}
+
+resource "azurerm_managed_disk" "data_disks" {
+  for_each = { for node in local.nodes : node.name => node }
+
+  name                 = "${local.deployment_id}-${each.key}-data"
+  location             = azurerm_resource_group.rg.location
+  resource_group_name  = azurerm_resource_group.rg.name
+  storage_account_type = var.disk_sku
+  create_option        = "Empty"
+  disk_size_gb         = var.data_volume_size
+  tags                 = local.common_tags
+
+  # This disk is only ever attached to a VM over Azure's internal storage
+  # fabric (see azurerm_virtual_machine_data_disk_attachment below); it is
+  # never imported/exported via the direct-upload data-plane endpoint that
+  # this flag controls.
+  public_network_access_enabled = false
+}
+
+resource "azurerm_virtual_machine_data_disk_attachment" "data_disks" {
+  for_each = azurerm_managed_disk.data_disks
+
+  managed_disk_id    = each.value.id
+  virtual_machine_id = azurerm_linux_virtual_machine.nodes[each.key].id
+  lun                = local.data_disk_lun
+  caching            = "ReadWrite"
+}
+
+resource "azapi_resource_action" "node_start" {
+  for_each = var.power_state == "running" ? azurerm_linux_virtual_machine.nodes : {}
+
+  type        = "Microsoft.Compute/virtualMachines@2024-11-01"
+  resource_id = each.value.id
+  action      = "start"
+  method      = "POST"
+
+  response_export_values = []
+
+  depends_on = [
+    azurerm_virtual_machine_data_disk_attachment.data_disks
+  ]
+}
+
+variable "power_state" {
+  description = "Target power state for virtual machines"
+  type        = string
+  default     = "running"
+
+  validation {
+    condition     = contains(["running", "stopped"], var.power_state)
+    error_message = "Allowed values are: running, stopped"
+  }
+}
+
+resource "azapi_resource_action" "node_stop" {
+  for_each = var.power_state == "stopped" ? azurerm_linux_virtual_machine.nodes : {}
+
+  type        = "Microsoft.Compute/virtualMachines@2024-11-01"
+  resource_id = each.value.id
+  action      = "deallocate"
+  method      = "POST"
+
+  response_export_values = []
+
+  depends_on = [
+    azurerm_virtual_machine_data_disk_attachment.data_disks
+  ]
+}

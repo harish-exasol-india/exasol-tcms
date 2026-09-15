@@ -1,0 +1,14 @@
+# Node barrier server on n11; waits for all nodes before install.
+# Idempotent via node_barrier_server.complete marker.
+
+[Unit]
+Description=Exasol Launcher Installation Node Barrier Server
+ConditionPathExists=!/var/lib/exasol_launcher/state/node_barrier_server.complete
+Requires=exasol_launcher_prepare.service exasol_launcher_prepare_user.service
+After=exasol_launcher_prepare.service exasol_launcher_prepare_user.service
+
+[Service]
+Type=oneshot
+ExecCondition=/opt/exasol_launcher/scripts/isAccessNode.sh
+ExecStart=/opt/exasol_launcher/scripts/waitNodesReady.sh server
+ExecStartPost=/usr/bin/touch /var/lib/exasol_launcher/state/node_barrier_server.complete

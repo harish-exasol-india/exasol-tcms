@@ -1,0 +1,17 @@
+# Best-effort host-side fallback version check.
+# Runs only on the access node and only when DB checks are enabled.
+
+[Unit]
+Description=Exasol Launcher Host Version Check
+Wants=network-online.target
+After=network-online.target exasol_launcher_ready.service
+ConditionPathExists=/var/lib/exasol_launcher/state/ready.complete
+ConditionPathExists=/etc/exasol_launcher/installation.json
+
+[Service]
+Type=oneshot
+ExecCondition=/opt/exasol_launcher/scripts/isAccessNode.sh
+ExecCondition=/opt/exasol_launcher/scripts/isDbVersionCheckEnabled.sh
+ExecStart=/opt/exasol_launcher/scripts/hostLauncherVersionCheck.sh
+User=ubuntu
+WorkingDirectory=~

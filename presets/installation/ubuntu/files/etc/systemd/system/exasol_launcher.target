@@ -1,0 +1,11 @@
+# Exasol installation completion target.
+# Launcher monitors this target state as the workflow outcome.
+
+[Unit]
+Description=Exasol Launcher Complete
+Requires=exasol_launcher_ready.service exasol_launcher_post_install.service
+Wants=exasol_launcher_host_version_check.timer
+After=exasol_launcher_ready.service exasol_launcher_post_install.service
+
+[Install]
+WantedBy=multi-user.target

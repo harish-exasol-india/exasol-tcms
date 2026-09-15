@@ -1,0 +1,17 @@
+# Post-install phase on n11 after DB readiness.
+# Idempotent via post_install.complete marker.
+
+[Unit]
+Description=Exasol Launcher Post-Install
+ConditionPathExists=!/var/lib/exasol_launcher/state/post_install.complete
+Requires=exasol_launcher_install.service exasol_launcher_ready.service
+After=exasol_launcher_install.service exasol_launcher_ready.service
+
+[Service]
+Type=oneshot
+ExecCondition=/opt/exasol_launcher/scripts/isAccessNode.sh
+ExecStart=/opt/exasol_launcher/scripts/uploadTLSCert.sh
+ExecStart=/opt/exasol_launcher/scripts/runInfraHookScripts.sh post-install
+ExecStartPost=/usr/bin/touch /var/lib/exasol_launcher/state/post_install.complete
+User=ubuntu
+WorkingDirectory=~
